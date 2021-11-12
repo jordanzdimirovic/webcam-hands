@@ -1,7 +1,7 @@
 import tensorflow as tf
 import keras
 import pandas as pd
-import numpy
+import numpy as np
 from sklearn.model_selection import train_test_split
 import os
 
@@ -10,8 +10,43 @@ gestures = ["open_palm", "claw", "fist", "thumb_up", "peace", "forward_middle_up
 csv_data = []
 column_names = ["handLR"] + [f"ordinate{i}" for i in range(63)] + ["gesture"]
 
-for gesture in gestures:
-    df = pd.read_csv(os.path.join("data", "gesture_data", gesture, "data.csv"))
-    
-    csv_data.append()
+for gest in gestures:
+    path_to_datafile = os.path.join("data", "gesture_data", gest, "data.csv")
+    if os.path.exists(path_to_datafile):
+        df = pd.read_csv(path_to_datafile, names = column_names).assign(gesture = gest)
+        csv_data.append(df)
+
+df_complete = pd.concat(csv_data)
+
+gestures_to_train = list(df_complete.gesture.unique())
+
+df_complete.gesture = df_complete.gesture.map(lambda x: gestures_to_train.index(x))
+
+print("Data for the following gestures has been located:")
+for g in df_complete.gesture.unique():
+    print(f"Gesture: '{g}: {gestures_to_train[g]}', with {len(df_complete[df_complete.gesture == g])} instances.")
+
+input("Press enter to begin...")
+
+# Perform a train-test-split on the data
+X_train, X_test, y_train, y_test = map(tf.convert_to_tensor, train_test_split(df_complete.drop("gesture", axis=1), df_complete.gesture, test_size = 0.2))
+
+# Create the model
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(64),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(len(gestures_to_train))
+])
+
+model.compile(optimizer='adam',
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+              metrics=['accuracy'])
+
+model.fit(X_train, y_train, epochs=50)
+
+test_loss, test_acc = model.evaluate(X_test,  y_test, verbose=2)
+
+print('\nTest accuracy:', test_acc)
+
+model.save("gesture_classifier_model")
 

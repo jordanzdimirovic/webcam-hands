@@ -1,0 +1,1 @@
+trained_gestures = "open_palm fist thumb_up peace".split()
