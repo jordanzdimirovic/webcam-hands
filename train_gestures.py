@@ -5,9 +5,11 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import os
 
+# Gestures to implement. Note that this isn't used just yet.
 gestures = ["open_palm", "claw", "fist", "thumb_up", "peace", "forward_middle_up", "forward_index_up"]
 
 csv_data = []
+# Define the column names
 column_names = ["handLR"] + [f"ordinate{i}" for i in range(63)] + ["gesture"]
 
 for gest in gestures:
@@ -17,6 +19,8 @@ for gest in gestures:
         csv_data.append(df)
 
 df_complete = pd.concat(csv_data)
+
+print(df_complete)
 
 gestures_to_train = list(df_complete.gesture.unique())
 
@@ -42,7 +46,7 @@ model.compile(optimizer='adam',
               loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
               metrics=['accuracy'])
 
-model.fit(X_train, y_train, epochs=50)
+model.fit(X_train, y_train, epochs=10)
 
 test_loss, test_acc = model.evaluate(X_test,  y_test, verbose=2)
 
