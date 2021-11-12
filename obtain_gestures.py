@@ -36,8 +36,6 @@ MSG_CAPTURING_TRUE_COLOUR = (20, 255, 30)
 MSG_CAPTURING_FALSE = "Not Capturing. Press SPACE to begin."
 MSG_CAPTURING_FALSE_COLOUR = (20, 30, 255)
 
-
-
 # SCRIPT
 def main():
     folder = input("What are we classifying? : ")
@@ -114,8 +112,7 @@ def main():
         hands_res = hands_mdl.process(frame)
         if hands_res.multi_hand_landmarks and hands_res.multi_handedness:
             for hand_index in range(len(hands_res.multi_hand_landmarks)):
-                landmarks = hands_res.multi_hand_landmarks[hand_index]
-                handedness = hands_res.multi_handedness[hand_index]        
+                landmarks = hands_res.multi_hand_landmarks[hand_index]      
                 mp_drawing.draw_landmarks(
                     frame,
                     landmarks,

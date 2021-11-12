@@ -1,0 +1,168 @@
+"""
+Webcam handtracking / gesture API.
+"""
+trained_gestures = "open_palm rock_gesture fist thumb_up peace".split()
+
+import cv2
+import numpy as np
+from timeit import default_timer as timer
+from dataclasses import dataclass
+import mediapipe as mp
+import time
+from collections import deque
+
+from threading import Thread, Event
+from google.protobuf.json_format import MessageToDict
+
+import re
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+mp_hands = mp.solutions.hands
+
+from copy import deepcopy
+
+@dataclass
+class Gesture():
+    id: int
+    timestamp: float
+    @property
+    def name(self):
+        return "" if self.id == -1 else trained_gestures[self.id]
+
+class WebcamHands():
+    """
+    Faciliates hand tracking and gesture classification through the webcam.
+    """
+    # Class-level methods
+    def get_default_options():
+        """
+        Return a new instance of the default WebcamHands options dictionary.
+        """
+        return {
+            "gesture_classifier_model_path": "gesture_model",
+            "flip_camera": False,
+            "view_camera": True,
+            "video_device_index": 0,
+            "landmark_model_complexity": 0,
+            "min_detection_confidence": 0.5,
+            "min_tracking_confidence": 0.5
+        }
+
+    def __init__(self, options = None):
+        # Create default options
+        self.options = type(self).get_default_options()
+        self.COMMS = {"running": True, "tracking_framerate": 0}
+        # Set all options, provided they're valid
+        if options:
+            for option in options:
+                if option in self.options:
+                    self.options[option] = options[option]            
+                else:
+                    raise ValueError(f"Option '{option}' is not valid.\nFor valid options and their defaults, refer to WebcamHands.get_default_options")
+
+    def __THREAD_landmark_tracking(self, LEFTHAND_BUFFER: np.array, RIGHTHAND_BUFFER: np.array):
+        """
+            MediaPipe hand tracking thread, created by main_manager thread.
+            Responsible for:
+            - Handedness classification
+            - Hand landmark location prediction
+        """
+        PREVIEW_WINDOW_NAME = "Hand-Tracking Preview"
+        
+        # Get camera device
+        cam = cv2.VideoCapture(self.options["video_device_index"])
+        
+        # Window
+        #cv2.namedWindow(PREVIEW_WINDOW_NAME, cv2.WINDOW_NORMAL)
+
+        # Initialise mediapipe hands classifier
+        hands_mdl = mp_hands.Hands(
+            model_complexity = self.options["landmark_model_complexity"],
+            min_detection_confidence = self.options["min_detection_confidence"],
+            min_tracking_confidence = self.options["min_tracking_confidence"]
+        )
+        
+        last_frame = timer()
+        # Main loop
+        while self.COMMS["running"]:
+            # Calculate frame rate
+            curr_frame = timer()
+            self.COMMS["tracking_framerate"] = 1/(curr_frame - last_frame)
+            last_frame = curr_frame
+
+            success, frame = cam.read()
+            if not success:
+                print("Camera didn't publish a frame. Continuing...")
+                continue
+
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            if self.options["flip_camera"]:
+                frame = cv2.flip(frame, 1)
+
+            hands_res = hands_mdl.process(frame)
+
+            if hands_res.multi_hand_landmarks and hands_res.multi_handedness:
+                for hand_index in range(len(hands_res.multi_hand_landmarks)):
+                    landmarks = hands_res.multi_hand_landmarks[hand_index]
+                    handedness = (0,1)[re.findall("(Right)|(Left)", str(hands_res.multi_handedness[hand_index]))[0][0] == "Right"]
+                    # Get the target buffer to write to
+                    target_buffer = RIGHTHAND_BUFFER if handedness else LEFTHAND_BUFFER
+                    for i, landmark in enumerate(landmarks.landmark):
+                        target_buffer[i] = [landmark.x, landmark.y, landmark.z]
+
+                    # Draw, if options are set
+                    if self.options["view_camera"]:
+                        mp_drawing.draw_landmarks(
+                            frame,
+                            landmarks,
+                            mp_hands.HAND_CONNECTIONS,
+                            mp_drawing_styles.get_default_hand_landmarks_style(),
+                            mp_drawing_styles.get_default_hand_connections_style()
+                        )
+
+            cv2.imshow(PREVIEW_WINDOW_NAME, frame)
+            if cv2.waitKey(1) == 27:
+                self.COMMS["running"] = False
+
+        cv2.destroyAllWindows()
+                        
+
+    def __THREAD_gesture_classification(self, GESTURE_BUFFER: np.array, LEFTHAND_BUFFER: np.array, RIGHTHAND_BUFFER: np.array):
+        """
+            Tensorflow model gesture classifier thread, created by main_manager thread.
+            Responsible for:
+            - Hand gesture classification (data obtained from LEFTHAND_BUFFER and RIGHTHAND_BUFFER)
+        """
+        raise NotImplementedError()
+
+    def __THREAD_main_manager(self):
+        """
+            Main thread, created by runtime.
+            Responsible for:
+            - Managing buffers to facilitate thread communication
+            - Create and run the landmark_tracking and gesture_classification threads
+        """
+        LEFTHAND_BUFFER = np.zeros((63, 3))
+        RIGHTHAND_BUFFER = np.zeros((63, 3))
+        # Empty gesture buffer: [LH, RH]
+        GESTURE_BUFFER = np.array([[Gesture(i) for i in [-1]*4], [Gesture(i) for i in [-1]*4]])
+        
+        # Communications dictionary, for inter-thread comms
+        
+        
+        self.THREAD_LANDMARK = Thread(target = self.__THREAD_landmark_tracking, args = (LEFTHAND_BUFFER, RIGHTHAND_BUFFER))
+        self.THREAD_LANDMARK.start()
+
+        self.THREAD_GESTURE = Thread(target = self.__THREAD_gesture_classification, args = ())
+        while self.COMMS["running"]:
+            # Do something
+            time.sleep(0.1)
+            print(self.COMMS["tracking_framerate"])
+
+    def start(self):
+        self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager)
+        self.THREAD_MAIN.start()
+
+    def stop(self):
+        raise NotImplementedError()

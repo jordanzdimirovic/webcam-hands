@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 import os
 
 # Gestures to implement. Note that this isn't used just yet.
-gestures = ["open_palm", "claw", "fist", "thumb_up", "peace", "forward_middle_up", "forward_index_up"]
+gestures = ["open_palm", "claw", "rock_gesture", "fist", "thumb_up", "peace", "forward_middle_up", "forward_index_up"]
 
 csv_data = []
 # Define the column names
@@ -37,7 +37,7 @@ X_train, X_test, y_train, y_test = map(tf.convert_to_tensor, train_test_split(df
 
 # Create the model
 model = tf.keras.Sequential([
-    tf.keras.layers.Dense(64),
+    tf.keras.layers.Dense(64), # 64 neurons
     tf.keras.layers.Dense(128, activation='relu'),
     tf.keras.layers.Dense(len(gestures_to_train))
 ])
@@ -52,5 +52,5 @@ test_loss, test_acc = model.evaluate(X_test,  y_test, verbose=2)
 
 print('\nTest accuracy:', test_acc)
 
-model.save("gesture_classifier_model")
+model.save("gesture_model")
 
