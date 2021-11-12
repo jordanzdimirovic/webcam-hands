@@ -1,7 +1,7 @@
 """
 Webcam handtracking / gesture API.
 """
-trained_gestures = "open_palm rock_gesture fist thumb_up peace".split()
+trained_gestures = "open_palm peace fist middle_forwardfacing".split()
 
 import cv2
 import tensorflow as tf
