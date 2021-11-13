@@ -6,6 +6,7 @@ trained_gestures = "open_palm peace fist middle_forwardfacing".split()
 import cv2
 import tensorflow as tf
 import keras
+import sys
 import numpy as np
 from timeit import default_timer as timer
 from dataclasses import dataclass
@@ -219,17 +220,16 @@ class WebcamHands():
             # Do something
             time.sleep(0.05)
             # Information:
-            print(f"FPS: {self.COMMS['tracking_framerate']}")
+            # print(f"FPS: {self.COMMS['tracking_framerate']}")
 
-            print(f"Lefthand in frame: {self.COMMS['LH_in_frame']}")
-            print(f"Righthand in frame: {self.COMMS['RH_in_frame']}")
+            # print("Lefthand in frame: {self.COMMS['LH_in_frame']}")
+            # print(f"Righthand in frame: {self.COMMS['RH_in_frame']}")
 
-            print(f"Lefthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in LEFTHAND_GESTURE_BUFFER)}")
-            print(f"Righthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in RIGHTHAND_GESTURE_BUFFER)}")
+            # print(f"Lefthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in LEFTHAND_GESTURE_BUFFER)}")
+            # print(f"Righthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in RIGHTHAND_GESTURE_BUFFER)}")
             
-            print("-" * 15)
-            print("\n" * 15)
-
+            print(f"FPS: {int(self.COMMS['tracking_framerate'])} | LeftHand: {LEFTHAND_GESTURE_BUFFER[0].name} | RightHand: {RIGHTHAND_GESTURE_BUFFER[0].name}" + " "*20, end = "\r")
+            sys.stdout.flush()
     def start(self):
         self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager)
         self.THREAD_MAIN.start()

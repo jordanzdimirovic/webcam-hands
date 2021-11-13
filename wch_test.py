@@ -2,7 +2,7 @@ import webcam_hands as wch
 
 app = wch.WebcamHands(
     options = {
-        "view_camera": True,
+        "view_camera": False,
         "flip_camera": True
     }
 )
