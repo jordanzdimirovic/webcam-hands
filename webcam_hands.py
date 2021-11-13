@@ -23,13 +23,20 @@ mp_hands = mp.solutions.hands
 
 from copy import deepcopy
 
+from math import inf as infinity
+
 @dataclass
-class Gesture():
+class GestureSnapshot():
     id: int
     timestamp: float
     @property
     def name(self):
         return "" if self.id == -1 else trained_gestures[self.id]
+
+@dataclass
+class TrackingSnapshot():
+    data: np.array
+    timestamp: float
 
 class WebcamHands():
     """
@@ -47,7 +54,9 @@ class WebcamHands():
             "video_device_index": 0,
             "landmark_model_complexity": 0,
             "min_detection_confidence": 0.5,
-            "min_tracking_confidence": 0.5
+            "min_tracking_confidence": 0.5,
+            "tracking_buffer_length": 5,
+            "gesture_buffer_length": 10
         }
 
     def __init__(self, options = None):
@@ -117,10 +126,18 @@ class WebcamHands():
 
                     self.COMMS["gestures_pending"].append(handedness)
                     
+                    target_tracking_deque = RIGHTHAND_BUFFER if handedness else LEFTHAND_BUFFER
+                    # Rotate
+                    
+                    target_tracking_deque.rotate()
+                    
                     # Get the target buffer to write to
-                    target_buffer = RIGHTHAND_BUFFER if handedness else LEFTHAND_BUFFER
+                    target_tracking_snapshot = target_tracking_deque[0]
+                    target_tracking_snapshot.timestamp = timer()
                     for i, landmark in enumerate(landmarks.landmark):
-                        target_buffer[i] = [landmark.x, landmark.y, landmark.z]
+                        target_tracking_snapshot.data[i] = [landmark.x, landmark.y, landmark.z]
+                    
+
 
                     # Draw, if options are set
                     if self.options["view_camera"]:
@@ -137,8 +154,9 @@ class WebcamHands():
             self.COMMS["RH_in_frame"] = (1 in hands_in_frame)
             self.COMMS["LH_in_frame"] = (0 in hands_in_frame)
 
+            if self.options["view_camera"]:
+                cv2.imshow(PREVIEW_WINDOW_NAME, frame)
 
-            cv2.imshow(PREVIEW_WINDOW_NAME, frame)
             if cv2.waitKey(1) == 27:
                 self.COMMS["running"] = False
 
@@ -160,9 +178,9 @@ class WebcamHands():
             if EVENT_CLASSIFY.wait(5):
                 pending = self.COMMS["gestures_pending"]
                 for hand in pending:
-                    selected_buffer = RIGHTHAND_BUFFER if hand else LEFTHAND_BUFFER
+                    selected_tracking_data = RIGHTHAND_BUFFER[0].data if hand else LEFTHAND_BUFFER[0].data
                     # Unnest the buffer data, appending hand to the beginning
-                    features = selected_buffer.flatten()
+                    features = selected_tracking_data.flatten()
                     data_for_mdl = np.array([np.insert(features, 0, hand)])
                     # Predict the gesture
                     gesture_predicted = np.argmax(gesture_model.predict(data_for_mdl)[0])
@@ -171,7 +189,7 @@ class WebcamHands():
                     
                     if gesture_predicted != selected_gesture_deque[0].id:
                         selected_gesture_deque.appendleft(
-                            Gesture(
+                            GestureSnapshot(
                                 id = gesture_predicted,
                                 timestamp = timer()
                             )
@@ -193,11 +211,11 @@ class WebcamHands():
             - Managing buffers to facilitate thread communication
             - Create and run the landmark_tracking and gesture_classification threads
         """
-        LEFTHAND_BUFFER = np.zeros((21, 3))
-        RIGHTHAND_BUFFER = np.zeros((21, 3))
+        LEFTHAND_BUFFER = deque([TrackingSnapshot(np.zeros((21, 3)), 0) for _ in range(self.options["tracking_buffer_length"])])
+        RIGHTHAND_BUFFER = deque([TrackingSnapshot(np.zeros((21, 3)), 0) for _ in range(self.options["tracking_buffer_length"])])
         # Empty gesture buffer: [LH, RH]
-        LEFTHAND_GESTURE_BUFFER = deque([Gesture(-1, 0) for _ in range(4)])
-        RIGHTHAND_GESTURE_BUFFER = deque([Gesture(-1, 0) for _ in range(4)])
+        LEFTHAND_GESTURE_BUFFER = deque([GestureSnapshot(-1, 0) for _ in range(self.options["gesture_buffer_length"])])
+        RIGHTHAND_GESTURE_BUFFER = deque([GestureSnapshot(-1, 0) for _ in range(self.options["gesture_buffer_length"])])
         
         # Link main thread to the buffers above
         self.BUFFERS = {
@@ -216,23 +234,10 @@ class WebcamHands():
         self.THREAD_GESTURE = Thread(target = self.__THREAD_gesture_classification, args = (EVENT_CLASSIFY, LEFTHAND_GESTURE_BUFFER, RIGHTHAND_GESTURE_BUFFER, LEFTHAND_BUFFER, RIGHTHAND_BUFFER))
         self.THREAD_GESTURE.start()
 
-        while self.COMMS["running"]:
-            # Do something
-            time.sleep(0.05)
-            # Information:
-            # print(f"FPS: {self.COMMS['tracking_framerate']}")
-
-            # print("Lefthand in frame: {self.COMMS['LH_in_frame']}")
-            # print(f"Righthand in frame: {self.COMMS['RH_in_frame']}")
-
-            # print(f"Lefthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in LEFTHAND_GESTURE_BUFFER)}")
-            # print(f"Righthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in RIGHTHAND_GESTURE_BUFFER)}")
-            
-            print(f"FPS: {int(self.COMMS['tracking_framerate'])} | LeftHand: {LEFTHAND_GESTURE_BUFFER[0].name} | RightHand: {RIGHTHAND_GESTURE_BUFFER[0].name}" + " "*20, end = "\r")
-            sys.stdout.flush()
     def start(self):
         self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager)
         self.THREAD_MAIN.start()
+        self.THREAD_MAIN.join()
 
     def stop(self, stopping = True):
         self.COMMS["running"] = False
@@ -241,7 +246,20 @@ class WebcamHands():
             self.THREAD_GESTURE.join()
             self.THREAD_LANDMARK.join()
 
-    def get_palm_position(self, hand):
-        lm_buff = self.BUFFERS["RH_LANDMARKS"] if hand else self.BUFFERS["LH_LANDMARKS"]
+    def get_palm_position(self, hand, moment = 0) -> np.array:
+        """
+            Obtain the position of the palm
+        """
         # Subset the palm landmarks
-        subset_indices = ()
+        subset_indices = [1, 5, 9, 13, 17]
+        buffer = self.BUFFERS["RH_LANDMARKS"][moment].data if hand else self.BUFFERS["LH_LANDMARKS"][moment].data
+        subset = buffer[subset_indices]
+        # Calculate the average position
+        return np.sum(subset, axis = 0)[:2] / len(subset)
+
+    def tracking_snapshots_deltatime(self, hand, ss1: int, ss2: int):
+        x = sorted((ss1, ss2))
+        buff = self.BUFFERS["RH_LANDMARKS"] if hand else self.BUFFERS["LH_LANDMARKS"]
+        ts1, ts2 = buff[x[0]].timestamp, buff[x[1]].timestamp
+        if ts1 == ts2: return infinity
+        return ts1 - ts2
