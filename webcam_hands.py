@@ -53,6 +53,12 @@ class WebcamHands():
         # Create default options
         self.options = type(self).get_default_options()
         self.COMMS = {"running": True, "tracking_framerate": 0, "gestures_pending": [], "LH_in_frame": False, "RH_in_frame": False}
+        self.BUFFERS = {
+            "LH_LANDMARKS": None,
+            "RH_LANDMARKS": None,
+            "LH_GESTURES": None,
+            "RH_GESTURES": None
+        }
         # Set all options, provided they're valid
         if options:
             for option in options:
@@ -192,6 +198,14 @@ class WebcamHands():
         LEFTHAND_GESTURE_BUFFER = deque([Gesture(-1, 0) for _ in range(4)])
         RIGHTHAND_GESTURE_BUFFER = deque([Gesture(-1, 0) for _ in range(4)])
         
+        # Link main thread to the buffers above
+        self.BUFFERS = {
+            "LH_LANDMARKS": LEFTHAND_BUFFER,
+            "RH_LANDMARKS": RIGHTHAND_BUFFER,
+            "LH_GESTURES": LEFTHAND_GESTURE_BUFFER,
+            "RH_GESTURES": RIGHTHAND_GESTURE_BUFFER
+        }
+
         # Create an event to trigger the gesture classification FROM the landmark predictor
         EVENT_CLASSIFY = Event()
 
@@ -203,21 +217,31 @@ class WebcamHands():
 
         while self.COMMS["running"]:
             # Do something
-            time.sleep(0.8)
+            time.sleep(0.05)
             # Information:
             print(f"FPS: {self.COMMS['tracking_framerate']}")
 
             print(f"Lefthand in frame: {self.COMMS['LH_in_frame']}")
             print(f"Righthand in frame: {self.COMMS['RH_in_frame']}")
 
-            print(f"Lefthand: {', '.join(gesture.name for gesture in LEFTHAND_GESTURE_BUFFER)}")
-            print(f"Righthand: {', '.join(gesture.name for gesture in RIGHTHAND_GESTURE_BUFFER)}")
+            print(f"Lefthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in LEFTHAND_GESTURE_BUFFER)}")
+            print(f"Righthand: {', '.join(str((gesture.name, gesture.timestamp)) for gesture in RIGHTHAND_GESTURE_BUFFER)}")
             
             print("-" * 15)
+            print("\n" * 15)
 
     def start(self):
         self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager)
         self.THREAD_MAIN.start()
 
-    def stop(self):
-        raise NotImplementedError()
+    def stop(self, stopping = True):
+        self.COMMS["running"] = False
+        if stopping:
+            self.THREAD_MAIN.join()
+            self.THREAD_GESTURE.join()
+            self.THREAD_LANDMARK.join()
+
+    def get_palm_position(self, hand):
+        lm_buff = self.BUFFERS["RH_LANDMARKS"] if hand else self.BUFFERS["LH_LANDMARKS"]
+        # Subset the palm landmarks
+        subset_indices = ()
