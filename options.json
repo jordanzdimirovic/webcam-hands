@@ -1,0 +1,18 @@
+{
+    "gesture_classifier_model_path": "gesture_model",
+    "flip_camera": false,
+    "view_camera": true,
+    "video_device_index": 0,
+    "landmark_model_complexity": 0,
+    "min_detection_confidence": 0.5,
+    "min_tracking_confidence": 0.5,
+    "tracking_buffer_length": 5,
+    "gesture_buffer_length": 10,
+    "gesture_names": [
+        "open_palm",
+        "peace",
+        "fist",
+        "middle_up",
+        "index_up"
+    ]
+}
