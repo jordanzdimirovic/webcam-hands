@@ -68,10 +68,13 @@ class WebcamHands():
             "min_tracking_confidence": 0.5,
             "tracking_buffer_length": 5,
             "gesture_buffer_length": 10,
+            "hand_velocity_delay": 2,
             "gesture_names": "!REQUIRED!"
         }
 
     def __perform_checks(self):
+        # Assert that hand velocity delay is bounded by the tracking buffer length
+        assert 0 < self.options["hand_velocity_delay"] < self.options["tracking_buffer_length"], "Hand velocity delay must be at least one, and bounded by the tracking buffer's size. Check the options"
         # Assert that the model has the correct number of inputs (64)
         input_layer_size = self.GESTURE_MODEL.layers[0].output_shape[1]
         assert input_layer_size == REQUIRED_INPUT_LAYER_SIZE, f"selected model has invalid input layer - expected {REQUIRED_INPUT_LAYER_SIZE}, got {input_layer_size}"
@@ -262,10 +265,19 @@ class WebcamHands():
                 # Clear the event
                 EVENT_CLASSIFY.clear()
 
+    @property
+    def velocity(self):
+        # Calculate velocity
+        return self.calculate_hand_velocity(0, self.options["hand_velocity_delay"]), self.calculate_hand_velocity(1, self.options["hand_velocity_delay"])
+
+    def gesture(self, gest_name):
+        gest_names = self.options["gesture_names"]
+        if gest_name in gest_names:
+            return gest_names.index(gest_name)
+        else: raise WebcamHandsException(f"{gest_name} is not a valid gesture name.")
+
     def __mainthread_loop(self):
-        # Calculate some values
-        return
-        lh_vel, rh_vel = map(vect.difference(self.BUFFERS[""]))
+        raise NotImplementedError()
 
     def __THREAD_main_manager(self, event_ready):
         """
@@ -316,16 +328,19 @@ class WebcamHands():
             self.THREAD_GESTURE.join()
             self.THREAD_LANDMARK.join()
 
-    def get_palm_position(self, hand, moment = 0) -> np.array:
+    def current(self, query):
+        # Get the most recent value of a buffer
+        if query not in self.BUFFERS:
+            raise WebcamHandsException(f"'{query}' is not a valid buffer.")
+        return self.BUFFERS[query][0]
+
+    def subset_palm(self, data, moment = 0) -> np.array:
         """
             Obtain the position of the palm
         """
         # Subset the palm landmarks
-        subset_indices = [1, 5, 9, 13, 17]
-        buffer = self.BUFFERS["RH_LANDMARKS"][moment].data if hand else self.BUFFERS["LH_LANDMARKS"][moment].data
-        subset = buffer[subset_indices]
-        # Calculate the average position
-        return np.sum(subset, axis = 0)[:2] / len(subset)
+        subset_indices = [0, 1, 5, 9, 13, 17]
+        return data[subset_indices]
 
     def tracking_snapshots_deltatime(self, hand, ss1: int, ss2: int):
         x = sorted((ss1, ss2))
@@ -333,3 +348,19 @@ class WebcamHands():
         ts1, ts2 = buff[x[0]].timestamp, buff[x[1]].timestamp
         if ts1 == 0 or ts2 == 0: return infinity
         return ts1 - ts2
+
+    def calculate_hand_velocity(self, hand, length, normalised = False):
+        selected_buff = self.BUFFERS["RH_LANDMARKS"] if hand else self.BUFFERS["LH_LANDMARKS"]
+        if length >= len(selected_buff):
+            print("Length index out of range! WARNING")
+            return np.array([0,0])
+        # Get the 2 values required
+        latest, first = selected_buff[0], selected_buff[length]
+        # Calculate the velocity
+        # TODO maybe use palm instead
+        vel = vect.difference(vect.average(self.subset_palm(latest.data)), vect.average(self.subset_palm(first.data)))
+        # If normalised, divide it by the delta time
+        if normalised: vel /= (latest.timestamp - first.timestamp)
+        return vel
+        
+
