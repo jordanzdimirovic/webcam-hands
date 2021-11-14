@@ -1,10 +1,12 @@
 """
 Webcam handtracking / gesture API.
 """
+import json
 import cv2
 import tensorflow as tf
 import keras
 import os
+import vectorfuncs as vect
 import numpy as np
 from timeit import default_timer as timer
 from dataclasses import dataclass
@@ -28,6 +30,8 @@ from math import inf as infinity
 # CONSTANTS
 DEFAULT_GESTURES = ('open_palm', 'peace', 'fist', 'middle_forwardfacing')
 REQUIRED_INPUT_LAYER_SIZE = 64
+OPTIONS_WITHOUT_DEFAULTS = ('gesture_names',)
+
 @dataclass
 class GestureSnapshot():
     gesture_names: ClassVar[tuple] = tuple()
@@ -64,7 +68,7 @@ class WebcamHands():
             "min_tracking_confidence": 0.5,
             "tracking_buffer_length": 5,
             "gesture_buffer_length": 10,
-            "gesture_names": DEFAULT_GESTURES
+            "gesture_names": "!REQUIRED!"
         }
 
     def __perform_checks(self):
@@ -81,6 +85,20 @@ class WebcamHands():
 
     def __init__(self, options = None):
         # Create default options
+        if type(options) == str:
+            if not os.path.isfile(options):
+                # Create it
+                open(options, "x").close()
+                # Write default options (as a template)
+                with open(options, "w") as fileobject:
+                    fileobject.write(json.dumps(WebcamHands.get_default_options(), indent = 4))
+
+            with open(options, "r") as jsonf:
+                try:
+                    options = json.loads(jsonf.read())
+                except:
+                    raise WebcamHandsException("Option file not a valid JSON file.")
+
         self.options = type(self).get_default_options()
         self.COMMS = {"running": True, "tracking_framerate": 0, "gestures_pending": [], "LH_in_frame": False, "RH_in_frame": False}
         self.BUFFERS = {
@@ -89,6 +107,11 @@ class WebcamHands():
             "LH_GESTURES": None,
             "RH_GESTURES": None
         }
+        # Ensure that all required options are included
+        for x in OPTIONS_WITHOUT_DEFAULTS:
+            if x not in options:
+                raise WebcamHandsException(f"Unspecified option {x} has no default.")
+
         # Set all options, provided they're valid
         if options:
             for option in options:
@@ -98,6 +121,7 @@ class WebcamHands():
                     raise ValueError(f"Option '{option}' is not valid.\nFor valid options and their defaults, refer to WebcamHands.get_default_options")
         
         # Set the GestureSnapshot class var
+        self.options["gesture_names"] = sorted(self.options["gesture_names"])
         GestureSnapshot.gesture_names = self.options["gesture_names"]
 
         # Load the gestures model
@@ -239,7 +263,9 @@ class WebcamHands():
                 EVENT_CLASSIFY.clear()
 
     def __mainthread_loop(self):
-        pass
+        # Calculate some values
+        return
+        lh_vel, rh_vel = map(vect.difference(self.BUFFERS[""]))
 
     def __THREAD_main_manager(self, event_ready):
         """
@@ -273,8 +299,8 @@ class WebcamHands():
 
         # Tell the runtime thread that we're ready
         event_ready.set()
-        while self.COMMS["running"]:
-            self.__mainthread_loop()
+        # while self.COMMS["running"]:
+        #     self.__mainthread_loop()
 
 
     def start(self):

@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 import os
 
 # Gestures to implement. Note that this isn't used just yet.
-gestures = ["open_palm", "claw", "peace", "rock_gesture", "fist", "thumb_up", "middle_forwardfacing", "forward_middle_up", "forward_index_up"]
+gestures = sorted([ f.name for f in os.scandir("data/gesture_data") if f.is_dir() ])
 
 csv_data = []
 # Define the column names
@@ -17,10 +17,10 @@ for gest in gestures:
     if os.path.exists(path_to_datafile):
         df = pd.read_csv(path_to_datafile, names = column_names).assign(gesture = gest)
         csv_data.append(df)
+    else:
+        raise OSError(f"'{path_to_datafile}' doesn't exist... yet.")
 
 df_complete = pd.concat(csv_data)
-
-print(df_complete)
 
 gestures_to_train = list(df_complete.gesture.unique())
 
