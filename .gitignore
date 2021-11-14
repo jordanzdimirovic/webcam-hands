@@ -2,3 +2,4 @@ virtualenv/
 venv/
 gesture_classifier_model/
 gesture_model/
+*.pyc
