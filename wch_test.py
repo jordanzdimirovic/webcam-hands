@@ -2,6 +2,7 @@ import webcam_hands as wch
 import numpy as np
 import sys
 import time
+print(wch.WebcamHands.get_default_options())
 app = wch.WebcamHands(
     options = {
         "view_camera": True
@@ -9,6 +10,8 @@ app = wch.WebcamHands(
 )
 
 app.start()
+
+print("App started!")
 
 while True:
     if app.COMMS["RH_in_frame"]:

@@ -1,18 +1,18 @@
 """
 Webcam handtracking / gesture API.
 """
-trained_gestures = "open_palm peace fist middle_forwardfacing".split()
-
 import cv2
 import tensorflow as tf
 import keras
-import sys
+import os
 import numpy as np
 from timeit import default_timer as timer
 from dataclasses import dataclass
 import mediapipe as mp
 import time
 from collections import deque
+
+from typing import ClassVar
 
 from threading import Thread, Event
 
@@ -25,18 +25,25 @@ from copy import deepcopy
 
 from math import inf as infinity
 
+# CONSTANTS
+DEFAULT_GESTURES = ('open_palm', 'peace', 'fist', 'middle_forwardfacing')
+REQUIRED_INPUT_LAYER_SIZE = 64
 @dataclass
 class GestureSnapshot():
+    gesture_names: ClassVar[tuple] = tuple()
     id: int
     timestamp: float
     @property
     def name(self):
-        return "" if self.id == -1 else trained_gestures[self.id]
+        return "" if self.id == -1 else self.__class__.gesture_names[self.id]
 
 @dataclass
 class TrackingSnapshot():
     data: np.array
     timestamp: float
+
+class WebcamHandsException(Exception):
+    pass
 
 class WebcamHands():
     """
@@ -56,8 +63,21 @@ class WebcamHands():
             "min_detection_confidence": 0.5,
             "min_tracking_confidence": 0.5,
             "tracking_buffer_length": 5,
-            "gesture_buffer_length": 10
+            "gesture_buffer_length": 10,
+            "gesture_names": DEFAULT_GESTURES
         }
+
+    def __perform_checks(self):
+        # Assert that the model has the correct number of inputs (64)
+        input_layer_size = self.GESTURE_MODEL.layers[0].output_shape[1]
+        assert input_layer_size == REQUIRED_INPUT_LAYER_SIZE, f"selected model has invalid input layer - expected {REQUIRED_INPUT_LAYER_SIZE}, got {input_layer_size}"
+
+        # Assert that the model has the correct number of outputs
+        input_layer_size = self.GESTURE_MODEL.layers[-1].output_shape[1]
+        n_gestures = len(self.options["gesture_names"])
+        assert input_layer_size == n_gestures, f"selected model has invalid output layer - expected {n_gestures}, got {input_layer_size}"
+        
+        
 
     def __init__(self, options = None):
         # Create default options
@@ -76,6 +96,24 @@ class WebcamHands():
                     self.options[option] = options[option]            
                 else:
                     raise ValueError(f"Option '{option}' is not valid.\nFor valid options and their defaults, refer to WebcamHands.get_default_options")
+        
+        # Set the GestureSnapshot class var
+        GestureSnapshot.gesture_names = self.options["gesture_names"]
+
+        # Load the gestures model
+        model_path = self.options["gesture_classifier_model_path"]
+        try:
+            self.GESTURE_MODEL = keras.models.load_model(model_path)
+
+        except OSError:
+            # Path not found, OR path was not a valid model
+            raise WebcamHandsException(f"The gesture classifier model path '{model_path}' was invalid.")
+
+        # Perform checks
+        try:
+            self.__perform_checks()
+        except AssertionError as assertion:
+            raise WebcamHandsException(f"API initialisation check failed: {str(assertion)}")
 
     def __THREAD_landmark_tracking(self, EVENT_CLASSIFY, LEFTHAND_BUFFER: np.array, RIGHTHAND_BUFFER: np.array):
         """
@@ -169,13 +207,11 @@ class WebcamHands():
             Responsible for:
             - Hand gesture classification (data obtained from LEFTHAND_BUFFER and RIGHTHAND_BUFFER)
         """
-        # Load the model
-        model_path = self.options["gesture_classifier_model_path"]
-        gesture_model = keras.models.load_model(model_path)
-
+        # Get the model reference
+        gesture_model = self.GESTURE_MODEL
         # Wait for the event to occur
         while self.COMMS["running"]:
-            if EVENT_CLASSIFY.wait(5):
+            if EVENT_CLASSIFY.wait(0.5):
                 pending = self.COMMS["gestures_pending"]
                 for hand in pending:
                     selected_tracking_data = RIGHTHAND_BUFFER[0].data if hand else LEFTHAND_BUFFER[0].data
@@ -202,9 +238,10 @@ class WebcamHands():
                 # Clear the event
                 EVENT_CLASSIFY.clear()
 
+    def __mainthread_loop(self):
+        pass
 
-
-    def __THREAD_main_manager(self):
+    def __THREAD_main_manager(self, event_ready):
         """
             Main thread, created by runtime.
             Responsible for:
@@ -234,10 +271,17 @@ class WebcamHands():
         self.THREAD_GESTURE = Thread(target = self.__THREAD_gesture_classification, args = (EVENT_CLASSIFY, LEFTHAND_GESTURE_BUFFER, RIGHTHAND_GESTURE_BUFFER, LEFTHAND_BUFFER, RIGHTHAND_BUFFER))
         self.THREAD_GESTURE.start()
 
+        # Tell the runtime thread that we're ready
+        event_ready.set()
+        while self.COMMS["running"]:
+            self.__mainthread_loop()
+
+
     def start(self):
-        self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager)
+        event_mainthread_done = Event()
+        self.THREAD_MAIN = Thread(target = self.__THREAD_main_manager, args = (event_mainthread_done,))
         self.THREAD_MAIN.start()
-        self.THREAD_MAIN.join()
+        event_mainthread_done.wait()
 
     def stop(self, stopping = True):
         self.COMMS["running"] = False
@@ -261,5 +305,5 @@ class WebcamHands():
         x = sorted((ss1, ss2))
         buff = self.BUFFERS["RH_LANDMARKS"] if hand else self.BUFFERS["LH_LANDMARKS"]
         ts1, ts2 = buff[x[0]].timestamp, buff[x[1]].timestamp
-        if ts1 == ts2: return infinity
+        if ts1 == 0 or ts2 == 0: return infinity
         return ts1 - ts2
