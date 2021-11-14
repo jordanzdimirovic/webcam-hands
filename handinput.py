@@ -8,8 +8,8 @@ from math import inf as infinity
 import win32api as winapi, win32con as wincon
 
 # CONSTANTS
-MOUSE_SENSITIVITY = 600
-MIN_VELOCITY_GATE = 0.0035
+MOUSE_SENSITIVITY = 590
+MIN_VELOCITY_GATE = 0.0026
 from time import sleep
 def detect_click():
     raise NotImplementedError()
